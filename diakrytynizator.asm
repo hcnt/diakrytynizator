@@ -3,8 +3,11 @@ SYS_EXIT    equ 60
 SYS_READ    equ 0
 STDOUT      equ 1
 STDIN      equ 2
-MINUS_SIGN  equ 45
 SYS_BRK  equ 12
+BUFFER_SIZE  equ 4096
+
+; There should be 3 bytes of room in buffer, if utf-8 bytes don't allign to the end of the buffer.
+BUFFER_SIZE_TO_READ  equ 4093     
 
 section   .text
    global    _start
@@ -19,7 +22,6 @@ _start:
 
    ; Copy begin and end of allocated memory to preserved registers
    mov r13, rdx                      
-   mov r14, rax
 
    xor rbx, rbx                      ; Use rbx as loop counter.
 
@@ -35,7 +37,6 @@ put_coeff_in_memory:
 parse_input:
    call read_buffer
    call parse_buffer
-   call print_message
    call exit
 
 ; PROCEDURES
@@ -93,7 +94,7 @@ print_message:
    mov       rax, SYS_WRITE          ; system call for write
    mov       rdi, STDOUT             ; file handle 1 is stdout
    mov       rsi, WRITE_BUFFER            ; address of string to output
-   mov       rdx, 4096               ; number of bytes
+   mov       rdx, r14               ; number of bytes
    syscall                          
    ret
 
@@ -101,8 +102,9 @@ read_buffer:
    mov rax, SYS_READ
    mov rdi, STDIN
    mov rsi, READ_BUFFER
-   mov rdx, 4096
+   mov rdx, BUFFER_SIZE_TO_READ
    syscall
+   mov r14, rax     ; Move number of bytes read to preserved register
    ret
 
 ; in rax there should be number of bytes read
@@ -118,23 +120,27 @@ parse_buffer:
    xor rcx, rcx ; Use rcx as counter.
    mov rbx, READ_BUFFER
 parse_buffer_loop:
-   cmp rcx, rax         
-   je parse_buffer_exit ; Exit when whole buffer taken.
+   cmp rcx, r14         ; In r14 there is number of bytes in buffer.
+   je parse_buffer_check_end ; Exit when all bytes are parsed.
+
+   ;Read first byte from buffer.
    xor r8, r8           ; Clear buffer after last loop.
    mov r8b, [rbx]       ; Get value from READ_BUFFER.
    inc rbx              ; Move pointer to the next byte.
 
-   cmp r8b, 0x80
+   cmp r8b, 0x80        ; Check if value is smaller then 0x80, then we know it's ascii character
    jb put_ascii_char_in_buffer_without_transform
 
-   xor r9, r9
+   ; Read next byte from buffer.
+   xor r9, r9           
    mov r9b, [rbx]
    inc rbx     
    
    ; Check if it's 2 byte character
+   ; TODO comment this
    mov dl, r8b
-   and dl, 0xe0
-   cmp dl, 0xc0
+   and dl, 0xe0   ; and with 11100000
+   cmp dl, 0xc0   ; check if equals 11000000
    je transform_two_byte_char
 
    xor r10, r10
@@ -142,6 +148,7 @@ parse_buffer_loop:
    inc rbx     
 
    ; Check if it's 3 byte character
+   ; TODO comment this
    mov dl, r8b
    and dl, 0xf0
    cmp dl, 0xe0
@@ -170,10 +177,20 @@ parse_buffer_loop:
    add bx, dx      ; do logical and with addition
    cmp bx, 2
    je transform_four_byte_char
-   pop rbx  ; Preserve register
+   pop rbx 
 
    ; If none of this cases is true then error
    call exit
+
+parse_buffer_check_end:
+   call print_message
+   cmp r14, BUFFER_SIZE   ; Check if buffer was filled.
+   jne parse_buffer_exit  ; If not then we can end now.
+
+   call read_buffer
+   mov r14, rax
+   cmp r14, 0
+   jne parse_buffer_loop
 
 parse_buffer_exit:
    pop r8
@@ -290,5 +307,5 @@ section   .data
    x:   db        0
    char_val:     db       0
    unicode_value:     dd       0
-   READ_BUFFER TIMES 4096 db 0
-   WRITE_BUFFER TIMES 4096 db 0
+   READ_BUFFER TIMES BUFFER_SIZE db 0
+   WRITE_BUFFER TIMES BUFFER_SIZE db 0
