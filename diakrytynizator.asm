@@ -2,9 +2,10 @@ SYS_WRITE   equ 1
 SYS_EXIT    equ 60
 SYS_READ    equ 0
 STDOUT      equ 1
-STDIN      equ 2
+STDIN      equ 0
 SYS_BRK  equ 12
 BUFFER_SIZE  equ 4096
+MODULO_VALUE equ 0x10ff80
 
 ; There should be 3 bytes of room in buffer, if utf-8 bytes don't allign to the end of the buffer.
 BUFFER_SIZE_TO_READ  equ 4093     
@@ -36,8 +37,10 @@ put_coeff_in_memory:
 
 parse_input:
    call read_buffer
+   cmp r14, 0         ; If read returned 0, end
+   je exit
    call parse_buffer
-   call exit
+   jmp exit
 
 ; PROCEDURES
 ; Takes number of arguments in rax and returns end of block in rax and first address in rdx
@@ -108,10 +111,10 @@ read_buffer:
    ret
 
 ; in rax there should be number of bytes read
-; r8w - first utf8 byte
-; r9w - second utf8 byte
-; r10w - third utf8 byte
-; r11w - fourth utf8 byte
+; r8b - first utf8 byte
+; r9b - second utf8 byte
+; r10b - third utf8 byte
+; r11b - fourth utf8 byte
 parse_buffer:
    push rdx
    push rcx
@@ -174,19 +177,16 @@ parse_buffer_loop:
    cmovle dx, ax     ; Again if condition is satisfied, remember logical value.
    pop rax           ; I don't use ax anymore, so I can restore value.
 
-   add bx, dx      ; do logical and with addition
-   cmp bx, 2
-   je transform_four_byte_char
+   and bx, dx      ; do logical and
+   cmp bx, 1
    pop rbx 
+   je transform_four_byte_char
 
    ; If none of this cases is true then error
    call exit
 
 parse_buffer_check_end:
    call print_message
-   cmp r14, BUFFER_SIZE   ; Check if buffer was filled.
-   jne parse_buffer_exit  ; If not then we can end now.
-
    call read_buffer
    mov r14, rax
    cmp r14, 0
@@ -206,12 +206,12 @@ put_ascii_char_in_buffer_without_transform:
    jmp parse_buffer_loop
 
 transform_two_byte_char:
-   push rbx 
-
    ; Encode bytes from r8b and r9b into unicode char in r8
    and r8b, 0x1f
-   shl r8, 6
    and r9b, 0x3f
+
+   shl r8, 6
+
    or r8, r9
 
    call apply_polynomial
@@ -230,14 +230,90 @@ transform_two_byte_char:
    inc rcx
    mov [WRITE_BUFFER + rcx], r9b
    inc rcx
-   pop rbx
    jmp parse_buffer_loop
    
 
 transform_three_byte_char:
+   and r8b, 0x0f 
+   and r9b, 0x3f 
+   and r10b, 0x3f 
+   
+   shl r8, 12
+   shl r9, 6
+
+   or r8, r9
+   or r8, r10
+
+   call apply_polynomial
+
+   mov r9, r8
+   mov r10, r8
+
+   shr r8, 12
+   shr r9, 6
+
+   and r8b, 0x0f
+   and r9b, 0x3f
+   and r10b, 0x3f
+
+   or r8b, 0xe0
+   or r9b, 0x80
+   or r10b, 0x80
+
+   mov [WRITE_BUFFER + rcx], r8b
+   inc rcx
+   mov [WRITE_BUFFER + rcx], r9b
+   inc rcx
+   mov [WRITE_BUFFER + rcx], r10b
+   inc rcx
+   jmp parse_buffer_loop
+
    ret
 
 transform_four_byte_char:
+   and r8b, 0x07
+   and r9b, 0x3f 
+   and r10b, 0x3f 
+   and r11b, 0x3f 
+   
+   shl r8, 18
+   shl r9, 12
+   shl r10, 6
+
+   or r8, r9
+   or r8, r10
+   or r8, r11
+
+   call apply_polynomial
+
+   mov r9, r8
+   mov r10, r8
+   mov r11, r8
+
+   shr r8, 18
+   shr r9, 12
+   shr r10, 6
+
+   and r8b, 0x07
+   and r9b, 0x3f
+   and r10b, 0x3f
+   and r11b, 0x3f
+
+   or r8b, 0xf0
+   or r9b, 0x80
+   or r10b, 0x80
+   or r11b, 0x80
+
+   mov [WRITE_BUFFER + rcx], r8b
+   inc rcx
+   mov [WRITE_BUFFER + rcx], r9b
+   inc rcx
+   mov [WRITE_BUFFER + rcx], r10b
+   inc rcx
+   mov [WRITE_BUFFER + rcx], r11b
+   inc rcx
+   jmp parse_buffer_loop
+
    ret
 
 ; get unicode value from r8 and put result also in r8
@@ -255,7 +331,8 @@ apply_polynomial:
    mov rbx, r8    ; Now in rbx there will be unicode value of character to the 1 power.
    mov r9, r8 ; Now in r9 there will be unicode value of character to the kth power.
    xor r8, r8 ; Make r8 zero so we can accumulate result there.
-   add r8, [r13]
+
+   add r8, [r13] ; Add a_0 to the result
    cmp r12, 1
    je apply_polynomial_exit
 
