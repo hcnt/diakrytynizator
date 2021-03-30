@@ -40,12 +40,12 @@ put_coeff_in_memory:
 parse_input:
    sub r13, 8  ; Make r13 point to last coeff in memory
    xor r14, r14 ; Use r14 as counter in READ_BUFFER
-   xor rcx, rcx ; Use rcx as counter in WRITE_BUFFER
+   xor r15, r15 ; Use r15 as counter in WRITE_BUFFER
 parse_buffer_loop:
-   cmp rcx, BUFFER_SIZE_WITH_ROOM
+   cmp r15, BUFFER_SIZE_WITH_ROOM
    jle parse_buffer_utf8_to_unicode
    call print_message
-   xor rcx, rcx
+   xor r15, r15
 
 parse_buffer_utf8_to_unicode:
    cmp r14, 0
@@ -84,7 +84,7 @@ parse_buffer_continue_1:
    mov r9w, 0xa0
    mov r10w, 0x9f
    mov r11w, 0x90
-   mov r15w, 0x8f
+   mov cl, 0x8f
 
    cmp r8b, 0xe0
    cmove ax, r9w
@@ -96,7 +96,7 @@ parse_buffer_continue_1:
    cmove ax, r11w
 
    cmp r8b, 0xf4
-   cmove dx, r15w
+   cmove dx, cx
 
    pop r9
    ; Check if second byte is correct
@@ -223,6 +223,7 @@ decode_utf8_four_bytes:
 
 parse_buffer_apply_polynomial_and_unicode_to_utf8:
    call apply_polynomial
+   mov r8, rax
    cmp r8, 0x80
    jb encode_utf8_one_byte
    cmp r8, 0x0800
@@ -234,8 +235,8 @@ parse_buffer_apply_polynomial_and_unicode_to_utf8:
 
 
 encode_utf8_one_byte:
-   mov [WRITE_BUFFER + rcx], r8b
-   inc rcx
+   mov [WRITE_BUFFER + r15], r8b
+   inc r15
    jmp parse_buffer_loop
 
 
@@ -249,9 +250,9 @@ encode_utf8_two_bytes:
    or r9b, 0x80
 
 
-   mov [WRITE_BUFFER + rcx], r8b
-   mov [WRITE_BUFFER + rcx + 1], r9b
-   add rcx, 2
+   mov [WRITE_BUFFER + r15], r8b
+   mov [WRITE_BUFFER + r15 + 1], r9b
+   add r15, 2
    jmp parse_buffer_loop
    
 encode_utf8_three_bytes:
@@ -269,10 +270,10 @@ encode_utf8_three_bytes:
    or r9b, 0x80
    or r10b, 0x80
 
-   mov [WRITE_BUFFER + rcx], r8b
-   mov [WRITE_BUFFER + rcx + 1], r9b
-   mov [WRITE_BUFFER + rcx + 2], r10b
-   add rcx, 3
+   mov [WRITE_BUFFER + r15], r8b
+   mov [WRITE_BUFFER + r15 + 1], r9b
+   mov [WRITE_BUFFER + r15 + 2], r10b
+   add r15, 3
    jmp parse_buffer_loop
 
 encode_utf8_four_bytes:
@@ -294,57 +295,49 @@ encode_utf8_four_bytes:
    or r10b, 0x80
    or r11b, 0x80
 
-   mov [WRITE_BUFFER + rcx], r8b
-   mov [WRITE_BUFFER + rcx + 1], r9b
-   mov [WRITE_BUFFER + rcx + 2], r10b
-   mov [WRITE_BUFFER + rcx + 3], r11b
-   add rcx, 4
+   mov [WRITE_BUFFER + r15], r8b
+   mov [WRITE_BUFFER + r15 + 1], r9b
+   mov [WRITE_BUFFER + r15 + 2], r10b
+   mov [WRITE_BUFFER + r15 + 3], r11b
+   add r15, 4
    jmp parse_buffer_loop
 
-; get unicode value from r8 and put result also in r8
+; get unicode value from r8 and put result in rax
 ; CANT DESTROY: rcx, r14, r12, rbx
 apply_polynomial:
-   push rcx
-   push rbx
    sub r8, 0x80
    mov r11, MODULO_VALUE 
 
    cmp r12, 0
    je apply_polynomial_exit
 
-   mov rbx, r8    ; Now in rbx there will be unicode value of character to the 1 power.
-   xor r8, r8 ; Make r8 zero so we can accumulate result there.
+   ; mov rbx, r8    ; Now in rbx there will be unicode value of character to the 1 power.
+   ; xor r8, r8 ; Make r8 zero so we can accumulate result there.
    xor rax, rax
 
+   mov rcx, r13     ; Now in rcx there will be current address of coefficent.
 
-   mov r15, r13     ; Now in r15 there will be current address of coefficent.
-
-   mov rcx, r12 ; Now in rcx there will be number of coefficents left.
+   mov r9, r12 ; Now in r9 there will be number of coefficents left.
 
 apply_polynomial_loop:
-   cmp rcx, 1          ; When only a_0 is left, end loop
+   cmp r9, 1          ; When only a_0 is left, end loop
    je apply_polynomial_exit
 
-   add rax, [r15]
+   add rax, [rcx]
    xor rdx, rdx
-   mul rbx      
+   mul r8    
    call modulo
 
-   dec rcx
-   sub r15, 8
+   dec r9
+   sub rcx, 8
 
    jmp apply_polynomial_loop
 
 apply_polynomial_exit:
-   add rax, [r15]  
+   add rax, [rcx]  
 
    call modulo
-   mov r8, rax
-
-   add r8, 0x80
-
-   pop rbx
-   pop rcx
+   add rax, 0x80
 
    ret
 
@@ -385,7 +378,7 @@ print_message:
    mov       rax, SYS_WRITE          ; system call for write
    mov       rdi, STDOUT             ; file handle 1 is stdout
    mov       rsi, WRITE_BUFFER            ; address of string to output
-   mov       rdx, rcx               ; number of bytes
+   mov       rdx, r15               ; number of bytes
    syscall                          
    ret
 
