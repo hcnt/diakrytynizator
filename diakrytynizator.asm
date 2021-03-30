@@ -4,11 +4,11 @@ SYS_READ    equ 0
 STDOUT      equ 1
 STDIN      equ 0
 SYS_BRK  equ 12
-BUFFER_SIZE  equ 4096
+BUFFER_SIZE  equ 6
 MODULO_VALUE equ 0x10ff80
 
-; There should be 3 bytes of room in buffer, if utf-8 bytes don't allign to the end of the buffer.
-BUFFER_SIZE_TO_READ  equ 4093     
+; There should be 4 bytes of room in buffer, if utf-8 bytes don't allign to the end of the buffer.
+BUFFER_SIZE_WITH_ROOM  equ 2  
 
 section   .text
    global    _start
@@ -36,10 +36,8 @@ put_coeff_in_memory:
    jmp put_coeff_in_memory
 
 parse_input:
-   call read_buffer
-   cmp r14, 0         ; If read returned 0, end
-   je exit
    call parse_buffer
+   xor rdi, rdi
    jmp exit
 
 ; PROCEDURES
@@ -109,7 +107,7 @@ print_message:
    mov       rax, SYS_WRITE          ; system call for write
    mov       rdi, STDOUT             ; file handle 1 is stdout
    mov       rsi, WRITE_BUFFER            ; address of string to output
-   mov       rdx, r14               ; number of bytes
+   mov       rdx, rcx               ; number of bytes
    syscall                          
    ret
 
@@ -117,9 +115,10 @@ read_buffer:
    mov rax, SYS_READ
    mov rdi, STDIN
    mov rsi, READ_BUFFER
-   mov rdx, BUFFER_SIZE_TO_READ
+   mov rdx, BUFFER_SIZE
    syscall
    mov r14, rax     ; Move number of bytes read to preserved register
+   mov rbx, READ_BUFFER
    ret
 
 ; in rax there should be number of bytes read
@@ -134,12 +133,18 @@ parse_buffer:
    push r8
    push r14
    xor rcx, rcx ; Use rcx as counter in WRITE_BUFFER
-   mov rbx, READ_BUFFER
 parse_buffer_loop:
-   cmp r14, 0         ; In r14 there is number of bytes in buffer.
-   je parse_buffer_check_end ; Exit when all bytes are parsed.
+   cmp rcx, BUFFER_SIZE_WITH_ROOM
+   jle parse_buffer_utf8_to_unicode
+   call print_message
+   xor rcx, rcx
 
 parse_buffer_utf8_to_unicode:
+   cmp r14, 0
+   jne parse_buffer_continue_0
+   call parse_buffer_check_end
+parse_buffer_continue_0:
+
    ;Read first byte from buffer.
    xor r8, r8           ; Clear buffer after last loop.
    mov r8b, [rbx]       ; Get value from READ_BUFFER.
@@ -152,6 +157,10 @@ parse_buffer_utf8_to_unicode:
    cmp r8b, 0xf4        ; If it's bigger than 0xf4 then it's error
    ja parse_buffer_error
 
+   cmp r14, 0
+   jne parse_buffer_continue_1
+   call parse_buffer_check_end
+parse_buffer_continue_1:
    ; Read next byte from buffer.
    xor r9, r9           
    mov r9b, [rbx]
@@ -196,6 +205,11 @@ parse_buffer_utf8_to_unicode:
    cmp dl, 0xc0   ; check if equals 11000000
    je decode_utf8_two_bytes
 
+   cmp r14, 0
+   jne parse_buffer_continue_2
+   call parse_buffer_check_end
+parse_buffer_continue_2:
+
    ; Read next byte
    xor r10, r10
    mov r10b, [rbx]
@@ -213,6 +227,11 @@ parse_buffer_utf8_to_unicode:
    and dl, 0xf0
    cmp dl, 0xe0
    je decode_utf8_three_bytes
+
+   cmp r14, 0
+   jne parse_buffer_continue_3
+   call parse_buffer_check_end
+parse_buffer_continue_3:
 
    ; Read next byte
    xor r11, r11
@@ -234,7 +253,6 @@ parse_buffer_utf8_to_unicode:
 
    ; If none of this cases is true then error
 parse_buffer_error:
-   mov r14, rcx         ; Move number of bytes to the right register
    call print_message
    mov rdi, 1
    jmp exit
@@ -251,14 +269,18 @@ parse_buffer_apply_polynomial_and_unicode_to_utf8:
    jb encode_utf8_four_bytes
 
 parse_buffer_check_end:
-   mov r14, rcx         ; Move number of bytes to the right register
-   call print_message
+   push rcx
    call read_buffer
+   pop rcx
    mov r14, rax
    cmp r14, 0
-   jne parse_buffer_loop
+   je parse_buffer_exit
+   ret
 
 parse_buffer_exit:
+   call print_message
+   xor rdi, rdi
+   jmp exit
    pop r14
    pop r8
    pop rbx
