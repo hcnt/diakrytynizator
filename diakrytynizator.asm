@@ -250,9 +250,8 @@ encode_utf8_two_bytes:
 
 
    mov [WRITE_BUFFER + rcx], r8b
-   inc rcx
-   mov [WRITE_BUFFER + rcx], r9b
-   inc rcx
+   mov [WRITE_BUFFER + rcx + 1], r9b
+   add rcx, 2
    jmp parse_buffer_loop
    
 encode_utf8_three_bytes:
@@ -271,11 +270,9 @@ encode_utf8_three_bytes:
    or r10b, 0x80
 
    mov [WRITE_BUFFER + rcx], r8b
-   inc rcx
-   mov [WRITE_BUFFER + rcx], r9b
-   inc rcx
-   mov [WRITE_BUFFER + rcx], r10b
-   inc rcx
+   mov [WRITE_BUFFER + rcx + 1], r9b
+   mov [WRITE_BUFFER + rcx + 2], r10b
+   add rcx, 3
    jmp parse_buffer_loop
 
 encode_utf8_four_bytes:
@@ -298,13 +295,10 @@ encode_utf8_four_bytes:
    or r11b, 0x80
 
    mov [WRITE_BUFFER + rcx], r8b
-   inc rcx
-   mov [WRITE_BUFFER + rcx], r9b
-   inc rcx
-   mov [WRITE_BUFFER + rcx], r10b
-   inc rcx
-   mov [WRITE_BUFFER + rcx], r11b
-   inc rcx
+   mov [WRITE_BUFFER + rcx + 1], r9b
+   mov [WRITE_BUFFER + rcx + 2], r10b
+   mov [WRITE_BUFFER + rcx + 3], r11b
+   add rcx, 4
    jmp parse_buffer_loop
 
 ; get unicode value from r8 and put result also in r8
@@ -419,6 +413,6 @@ exit:
    syscall                           ; invoke operating system to exit
 
 
-section   .data
-   READ_BUFFER TIMES BUFFER_SIZE db 0
-   WRITE_BUFFER TIMES BUFFER_SIZE db 0
+section   .bss
+   READ_BUFFER resb BUFFER_SIZE
+   WRITE_BUFFER resb BUFFER_SIZE
