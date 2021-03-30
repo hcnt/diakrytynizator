@@ -23,6 +23,7 @@ _start:
 
    ; Copy begin and end of allocated memory to preserved registers
    mov r13, rdx                      
+   mov r14, rax                      
 
    xor rbx, rbx                      ; Use rbx as loop counter.
 
@@ -41,6 +42,8 @@ put_coeff_in_memory:
 ; r10b - third utf8 byte
 ; r11b - fourth utf8 byte
 parse_input:
+   mov r13, r14
+   xor r14, r14 ; Use r14 as counter in READ_BUFFER
    xor rcx, rcx ; Use rcx as counter in WRITE_BUFFER
 parse_buffer_loop:
    cmp rcx, BUFFER_SIZE_WITH_ROOM
@@ -307,9 +310,10 @@ encode_utf8_four_bytes:
    mov [WRITE_BUFFER + rcx], r11b
    inc rcx
    jmp parse_buffer_loop
+
 ; get unicode value from r8 and put result also in r8
+; CANT DESTROY: rcx, r14, r12, rbx
 apply_polynomial:
-   push rdx
    push rcx
    push rbx
    push r9
@@ -321,67 +325,44 @@ apply_polynomial:
    je apply_polynomial_exit
 
    mov rbx, r8    ; Now in rbx there will be unicode value of character to the 1 power.
-   mov r9, r8 ; Now in r9 there will be unicode value of character to the kth power.
    xor r8, r8 ; Make r8 zero so we can accumulate result there.
+   xor rax, rax
 
-   add r8, [r13] ; Add a_0 to the result
-   cmp r12, 1
-
-   je apply_polynomial_exit
 
    mov r15, r13     ; Now in r15 there will be current address of coefficent.
-   add r15, 8
-
-   mov rax, r9
-   xor rdx, rdx
-   mul QWORD [r15]       ; multiply times coefficent
-   add r15, 8
-
-   add r8, rax      ; Add a_n*(x-0x80) to result
-
-   mov rax, r8               ; Copy result to the div argument.
-   call modulo
-   mov r8, rax
 
    mov rcx, r12 ; Now in rcx there will be number of coefficents left.
-   sub rcx, 2   ; Two coefficents where already applied, so we skip them.
+
+   sub r15, 8
 
 apply_polynomial_loop:
-   cmp rcx, 0
+   cmp rcx, 1
    je apply_polynomial_exit
 
-   mov rax, r9
+   add rax, [r15]
    xor rdx, rdx
-   mul rbx       ; change unicode**k -> unicode**(k+1)
+   mul rbx      
    call modulo
-   mov r9, rax
-
-   xor rdx, rdx
-   mul QWORD [r15]       ; multiply times coefficent
-   add r8, rax     ; Add a_n * (x - 0x80)**k to result
-
-   ; Modulo
-   mov rax, r8               ; Copy result to the div argument.
-   call modulo
-   mov r8, rax
 
    dec rcx
-   add r15, 8
+   sub r15, 8
 
    jmp apply_polynomial_loop
 
 apply_polynomial_exit:
-   pop rax
-   pop r9
-   pop rbx
-   pop rcx
-   pop rdx
 
-   mov rax, r8               ; Copy result to the div argument.
+   add rax, [r15]
+
    call modulo
    mov r8, rax
 
    add r8, 0x80
+
+   pop rax
+   pop r9
+   pop rbx
+   pop rcx
+
    ret
       
 ; PROCEDURES
