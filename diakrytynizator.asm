@@ -35,103 +35,12 @@ put_coeff_in_memory:
    inc rbx
    jmp put_coeff_in_memory
 
-parse_input:
-   call parse_buffer
-   xor rdi, rdi
-   jmp exit
-
-; PROCEDURES
-; Takes number of arguments in rax and returns end of block in rax and first address in rdx
-; Uses rdx, r8
-allocate_memory_for_coeffs:
-   mov r8, 8
-   mul r8
-   mov r8, rax            ; Now there is number of bytes to be reserved in r8.
-
-   mov	rax, SYS_BRK
-   xor	rdi, rdi
-   syscall
-   
-   mov rdx, rax              ; Copy first address to rdx
-
-   add   rax, r8	          ; Add number of bytes to be reserved.
-   mov   rdi, rax
-   mov   rax, SYS_BRK
-   syscall
-   ret
-
-; Takes address of string in r10 and returns integer in rax.
-atoi:
-   push rcx
-   push rbx
-   push r10
-   push r11
-   push rdx
-   xor rax, rax
-   mov rcx, 10
-   mov r11, MODULO_VALUE 
-
-atoi_next:
-   xor rbx, rbx
-
-   mov bl, [r10]
-   inc r10
-
-   cmp bl, '0'                        ; Check if bl contains digit
-   jb atoi_end
-   cmp bl, '9'
-   ja atoi_end
-
-   sub bl, '0'
-   xor rdx, rdx
-   mul rcx
-   add rax, rbx
-
-   ;Modulo
-   xor rdx, rdx
-   div r11                   ; Divide the result
-   mov rax, rdx               ; Copy reminder to the result.
-
-   jmp atoi_next
-
-atoi_end:
-   pop rdx
-   pop r11
-   pop r10
-   pop rbx
-   pop rcx
-   ret
-   
-
-print_message:
-   mov       rax, SYS_WRITE          ; system call for write
-   mov       rdi, STDOUT             ; file handle 1 is stdout
-   mov       rsi, WRITE_BUFFER            ; address of string to output
-   mov       rdx, rcx               ; number of bytes
-   syscall                          
-   ret
-
-read_buffer:
-   mov rax, SYS_READ
-   mov rdi, STDIN
-   mov rsi, READ_BUFFER
-   mov rdx, BUFFER_SIZE
-   syscall
-   mov r14, rax     ; Move number of bytes read to preserved register
-   mov rbx, READ_BUFFER
-   ret
-
 ; in rax there should be number of bytes read
 ; r8b - first utf8 byte
 ; r9b - second utf8 byte
 ; r10b - third utf8 byte
 ; r11b - fourth utf8 byte
-parse_buffer:
-   push rdx
-   push rcx
-   push rbx
-   push r8
-   push r14
+parse_input:
    xor rcx, rcx ; Use rcx as counter in WRITE_BUFFER
 parse_buffer_loop:
    cmp rcx, BUFFER_SIZE_WITH_ROOM
@@ -152,7 +61,7 @@ parse_buffer_continue_0:
    dec r14
 
    cmp r8b, 0x80        ; Check if value is smaller then 0x80, then we know it's ascii character
-   jb put_ascii_char_in_buffer_without_transform
+   jb encode_utf8_one_byte
 
    cmp r8b, 0xf4        ; If it's bigger than 0xf4 then it's error
    ja parse_buffer_error
@@ -257,16 +166,6 @@ parse_buffer_error:
    mov rdi, 1
    jmp exit
 
-parse_buffer_apply_polynomial_and_unicode_to_utf8:
-   call apply_polynomial
-   cmp r8, 0x80
-   jb encode_utf8_one_byte
-   cmp r8, 0x0800
-   jb encode_utf8_two_bytes
-   cmp r8, 0x010000
-   jb encode_utf8_three_bytes
-   cmp r8, 0x0110000
-   jb encode_utf8_four_bytes
 
 parse_buffer_check_end:
    push rcx
@@ -281,23 +180,8 @@ parse_buffer_exit:
    call print_message
    xor rdi, rdi
    jmp exit
-   pop r14
-   pop r8
-   pop rbx
-   pop rcx
-   pop rdx
-   ret
 
-put_ascii_char_in_buffer_without_transform:
-   mov [WRITE_BUFFER + rcx], r8b
-   inc rcx
-   jmp parse_buffer_loop
-
-encode_utf8_one_byte:
-   and r8b, 0x7f
-   mov [WRITE_BUFFER + rcx], r8b
-   inc rcx
-   jmp parse_buffer_loop
+;----------------------------------------
 
 decode_utf8_two_bytes:
    and r8b, 0x1f
@@ -308,6 +192,53 @@ decode_utf8_two_bytes:
    shl r8, 6
    or r8, r9
    jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
+
+decode_utf8_three_bytes:
+   and r8b, 0x0f 
+   and r9b, 0x3f 
+   and r10b, 0x3f 
+   
+   shl r8, 12
+   shl r9, 6
+
+   or r8, r9
+   or r8, r10
+   jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
+
+
+decode_utf8_four_bytes:
+   and r8b, 0x07
+   and r9b, 0x3f 
+   and r10b, 0x3f 
+   and r11b, 0x3f 
+   
+   shl r8, 18
+   shl r9, 12
+   shl r10, 6
+
+   or r8, r9
+   or r8, r10
+   or r8, r11
+   jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
+
+
+parse_buffer_apply_polynomial_and_unicode_to_utf8:
+   call apply_polynomial
+   cmp r8, 0x80
+   jb encode_utf8_one_byte
+   cmp r8, 0x0800
+   jb encode_utf8_two_bytes
+   cmp r8, 0x010000
+   jb encode_utf8_three_bytes
+   cmp r8, 0x0110000
+   jb encode_utf8_four_bytes
+
+
+encode_utf8_one_byte:
+   mov [WRITE_BUFFER + rcx], r8b
+   inc rcx
+   jmp parse_buffer_loop
+
 
 encode_utf8_two_bytes:
    mov r9, r8
@@ -325,19 +256,6 @@ encode_utf8_two_bytes:
    inc rcx
    jmp parse_buffer_loop
    
-
-decode_utf8_three_bytes:
-   and r8b, 0x0f 
-   and r9b, 0x3f 
-   and r10b, 0x3f 
-   
-   shl r8, 12
-   shl r9, 6
-
-   or r8, r9
-   or r8, r10
-   jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
-
 encode_utf8_three_bytes:
    mov r9, r8
    mov r10, r8
@@ -360,22 +278,6 @@ encode_utf8_three_bytes:
    mov [WRITE_BUFFER + rcx], r10b
    inc rcx
    jmp parse_buffer_loop
-
-
-decode_utf8_four_bytes:
-   and r8b, 0x07
-   and r9b, 0x3f 
-   and r10b, 0x3f 
-   and r11b, 0x3f 
-   
-   shl r8, 18
-   shl r9, 12
-   shl r10, 6
-
-   or r8, r9
-   or r8, r10
-   or r8, r11
-   jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
 
 encode_utf8_four_bytes:
    mov r9, r8
@@ -405,8 +307,6 @@ encode_utf8_four_bytes:
    mov [WRITE_BUFFER + rcx], r11b
    inc rcx
    jmp parse_buffer_loop
-
-
 ; get unicode value from r8 and put result also in r8
 apply_polynomial:
    push rdx
@@ -467,17 +367,6 @@ apply_polynomial_loop:
 
    jmp apply_polynomial_loop
 
-
-modulo:
-   push rdx                  ; Save current address of coefficent (it would be destroyed by div)
-   xor rdx, rdx             
-   div r11                  
-   mov rax, rdx               ; Copy reminder to the result.
-   pop rdx
-   ret
-
-
-
 apply_polynomial_exit:
    pop rax
    pop r9
@@ -492,6 +381,94 @@ apply_polynomial_exit:
    add r8, 0x80
    ret
       
+; PROCEDURES
+; Takes number of arguments in rax and returns end of block in rax and first address in rdx
+; Uses rdx, r8
+allocate_memory_for_coeffs:
+   mov r8, 8
+   mul r8
+   mov r8, rax            ; Now there is number of bytes to be reserved in r8.
+
+   mov	rax, SYS_BRK
+   xor	rdi, rdi
+   syscall
+   
+   mov rdx, rax              ; Copy first address to rdx
+
+   add   rax, r8	          ; Add number of bytes to be reserved.
+   mov   rdi, rax
+   mov   rax, SYS_BRK
+   syscall
+   ret
+
+; Takes address of string in r10 and returns integer in rax.
+atoi:
+   push rcx
+   push rbx
+   push r10
+   push r11
+   push rdx
+   xor rax, rax
+   mov rcx, 10
+   mov r11, MODULO_VALUE 
+
+atoi_next:
+   xor rbx, rbx
+
+   mov bl, [r10]
+   inc r10
+
+   cmp bl, '0'                        ; Check if bl contains digit
+   jb atoi_end
+   cmp bl, '9'
+   ja atoi_end
+
+   sub bl, '0'
+   xor rdx, rdx
+   mul rcx
+   add rax, rbx
+
+   ;Modulo
+   xor rdx, rdx
+   div r11                   ; Divide the result
+   mov rax, rdx               ; Copy reminder to the result.
+
+   jmp atoi_next
+
+atoi_end:
+   pop rdx
+   pop r11
+   pop r10
+   pop rbx
+   pop rcx
+   ret
+   
+
+print_message:
+   mov       rax, SYS_WRITE          ; system call for write
+   mov       rdi, STDOUT             ; file handle 1 is stdout
+   mov       rsi, WRITE_BUFFER            ; address of string to output
+   mov       rdx, rcx               ; number of bytes
+   syscall                          
+   ret
+
+read_buffer:
+   mov rax, SYS_READ
+   mov rdi, STDIN
+   mov rsi, READ_BUFFER
+   mov rdx, BUFFER_SIZE
+   syscall
+   mov r14, rax     ; Move number of bytes read to preserved register
+   mov rbx, READ_BUFFER
+   ret
+
+modulo:
+   push rdx                  ; Save current address of coefficent (it would be destroyed by div)
+   xor rdx, rdx             
+   div r11                  
+   mov rax, rdx               ; Copy reminder to the result.
+   pop rdx
+   ret
 
 ; Exit code has to be in rdi
 exit:
