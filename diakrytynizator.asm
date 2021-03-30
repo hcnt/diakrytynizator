@@ -19,20 +19,17 @@ _start:
    
    pop rsi                          ; Discard program name.
    
-   call allocate_memory_for_coeffs
-
-   ; Copy begin and end of allocated memory to preserved registers
-   mov r13, rdx                      
-   mov r14, rax                      
-
    xor rbx, rbx                      ; Use rbx as loop counter.
+   mov r11, rsp       ; Copy value of stack pointer
 
 put_coeff_in_memory:   
    cmp rbx, r12
    jz parse_input
-   pop r10
+   ; pop r10
+   mov r10, [r11]
    call atoi
-   mov [r13 + rbx * 8], rax
+   mov [r11], rax
+   add r11, 8
    inc rbx
    jmp put_coeff_in_memory
 
@@ -42,7 +39,7 @@ put_coeff_in_memory:
 ; r10b - third utf8 byte
 ; r11b - fourth utf8 byte
 parse_input:
-   mov r13, r14
+   mov r13, r11  ; Copy end of memory with coeffs to the preserver register
    xor r14, r14 ; Use r14 as counter in READ_BUFFER
    xor rcx, rcx ; Use rcx as counter in WRITE_BUFFER
 parse_buffer_loop:
@@ -363,26 +360,6 @@ apply_polynomial_exit:
    pop rbx
    pop rcx
 
-   ret
-      
-; PROCEDURES
-; Takes number of arguments in rax and returns end of block in rax and first address in rdx
-; Uses rdx, r8
-allocate_memory_for_coeffs:
-   mov r8, 8
-   mul r8
-   mov r8, rax            ; Now there is number of bytes to be reserved in r8.
-
-   mov	rax, SYS_BRK
-   xor	rdi, rdi
-   syscall
-   
-   mov rdx, rax              ; Copy first address to rdx
-
-   add   rax, r8	          ; Add number of bytes to be reserved.
-   mov   rdi, rax
-   mov   rax, SYS_BRK
-   syscall
    ret
 
 ; Takes address of string in r10 and returns integer in rax.
