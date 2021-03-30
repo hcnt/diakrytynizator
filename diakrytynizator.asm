@@ -4,11 +4,11 @@ SYS_READ    equ 0
 STDOUT      equ 1
 STDIN      equ 0
 SYS_BRK  equ 12
-BUFFER_SIZE  equ 6
+BUFFER_SIZE  equ 4096
 MODULO_VALUE equ 0x10ff80
 
 ; There should be 4 bytes of room in buffer, if utf-8 bytes don't allign to the end of the buffer.
-BUFFER_SIZE_WITH_ROOM  equ 2  
+BUFFER_SIZE_WITH_ROOM  equ 4092
 
 section   .text
    global    _start
@@ -90,8 +90,8 @@ parse_buffer_continue_1:
    cmp r8b, 0xe0
    cmove ax, r9w
 
-   cmp r8b, 0xed
-   cmove dx, r10w
+   ; cmp r8b, 0xed
+   ; cmove dx, r10w
 
    cmp r8b, 0xf0
    cmove ax, r11w
@@ -351,8 +351,11 @@ apply_polynomial_loop:
    je apply_polynomial_exit
 
    mov rax, r9
+   xor rdx, rdx
    mul rbx       ; change unicode**k -> unicode**(k+1)
+   call modulo
    mov r9, rax
+
    xor rdx, rdx
    mul QWORD [r15]       ; multiply times coefficent
    add r8, rax     ; Add a_n * (x - 0x80)**k to result
