@@ -20,26 +20,25 @@ _start:
    pop rsi                          ; Discard program name.
    
    xor rbx, rbx                      ; Use rbx as loop counter.
-   mov r11, rsp       ; Copy value of stack pointer
+   mov r13, rsp       ; Copy value of stack pointer
 
 put_coeff_in_memory:   
    cmp rbx, r12
    jz parse_input
    ; pop r10
-   mov r10, [r11]
+   mov r10, [r13]
    call atoi
-   mov [r11], rax
-   add r11, 8
+   mov [r13], rax
+   add r13, 8
    inc rbx
    jmp put_coeff_in_memory
 
-; in rax there should be number of bytes read
 ; r8b - first utf8 byte
 ; r9b - second utf8 byte
 ; r10b - third utf8 byte
 ; r11b - fourth utf8 byte
 parse_input:
-   mov r13, r11  ; Copy end of memory with coeffs to the preserver register
+   sub r13, 8  ; Make r13 point to last coeff in memory
    xor r14, r14 ; Use r14 as counter in READ_BUFFER
    xor rcx, rcx ; Use rcx as counter in WRITE_BUFFER
 parse_buffer_loop:
@@ -313,8 +312,6 @@ encode_utf8_four_bytes:
 apply_polynomial:
    push rcx
    push rbx
-   push r9
-   push rax
    sub r8, 0x80
    mov r11, MODULO_VALUE 
 
@@ -330,10 +327,8 @@ apply_polynomial:
 
    mov rcx, r12 ; Now in rcx there will be number of coefficents left.
 
-   sub r15, 8
-
 apply_polynomial_loop:
-   cmp rcx, 1
+   cmp rcx, 1          ; When only a_0 is left, end loop
    je apply_polynomial_exit
 
    add rax, [r15]
@@ -347,16 +342,13 @@ apply_polynomial_loop:
    jmp apply_polynomial_loop
 
 apply_polynomial_exit:
-
-   add rax, [r15]
+   add rax, [r15]  
 
    call modulo
    mov r8, rax
 
    add r8, 0x80
 
-   pop rax
-   pop r9
    pop rbx
    pop rcx
 
@@ -364,30 +356,25 @@ apply_polynomial_exit:
 
 ; Takes address of string in r10 and returns integer in rax.
 atoi:
-   push rcx
-   push rbx
-   push r10
-   push r11
-   push rdx
    xor rax, rax
    mov rcx, 10
    mov r11, MODULO_VALUE 
 
 atoi_next:
-   xor rbx, rbx
+   xor r8, r8
 
-   mov bl, [r10]
+   mov r8b, [r10]
    inc r10
 
-   cmp bl, '0'                        ; Check if bl contains digit
+   cmp r8b, '0'                        ; Check if bl contains digit
    jb atoi_end
-   cmp bl, '9'
+   cmp r8b, '9'
    ja atoi_end
 
-   sub bl, '0'
+   sub r8b, '0'
    xor rdx, rdx
    mul rcx
-   add rax, rbx
+   add rax, r8
 
    ;Modulo
    xor rdx, rdx
@@ -397,11 +384,6 @@ atoi_next:
    jmp atoi_next
 
 atoi_end:
-   pop rdx
-   pop r11
-   pop r10
-   pop rbx
-   pop rcx
    ret
    
 
