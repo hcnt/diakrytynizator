@@ -16,7 +16,7 @@ _start:
    pop rax                          ; Get number of arguments + 1.
    dec rax                          ; Make it real number of arguments.
    mov r12, rax            ; Copy number of args to preserved register.
-   
+ 
    pop rsi                          ; Discard program name.
    
    xor rbx, rbx                      ; Use rbx as loop counter.
@@ -28,7 +28,7 @@ put_coeff_in_memory:
    ; pop r10
    mov r10, [r13]
    call atoi
-   mov [r13], rax
+   mov [r13], eax
    add r13, 8
    inc rbx
    jmp put_coeff_in_memory
@@ -57,7 +57,7 @@ parse_buffer_utf8_to_unicode:
 parse_buffer_continue_0:
 
    ;Read first byte from buffer.
-   xor r8, r8           ; Clear buffer after last loop.
+   xor r8d, r8d          ; Clear buffer after last loop.
    mov r8b, [rbx]       ; Get value from READ_BUFFER.
    inc rbx              ; Move pointer to the next byte.
    dec r14
@@ -73,7 +73,7 @@ parse_buffer_continue_0:
    call parse_buffer_check_end
 parse_buffer_continue_1:
    ; Read next byte from buffer.
-   xor r9, r9           
+   xor r9d, r9d           
    mov r9b, [rbx]
    inc rbx     
    dec r14
@@ -91,9 +91,6 @@ parse_buffer_continue_1:
 
    cmp r8b, 0xe0
    cmove ax, r9w
-
-   ; cmp r8b, 0xed
-   ; cmove dx, r10w
 
    cmp r8b, 0xf0
    cmove ax, r11w
@@ -122,7 +119,7 @@ parse_buffer_continue_1:
 parse_buffer_continue_2:
 
    ; Read next byte
-   xor r10, r10
+   xor r10d, r10d
    mov r10b, [rbx]
    inc rbx     
    dec r14
@@ -145,7 +142,7 @@ parse_buffer_continue_2:
 parse_buffer_continue_3:
 
    ; Read next byte
-   xor r11, r11
+   xor r11d, r11d
    mov r11b, [rbx]
    inc rbx     
    dec r14
@@ -191,8 +188,8 @@ decode_utf8_two_bytes:
    cmp r8b, 2
    jb parse_buffer_error
 
-   shl r8, 6
-   or r8, r9
+   shl r8d, 6
+   or r8d, r9d
    jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
 
 decode_utf8_three_bytes:
@@ -200,11 +197,11 @@ decode_utf8_three_bytes:
    and r9b, 0x3f 
    and r10b, 0x3f 
    
-   shl r8, 12
-   shl r9, 6
+   shl r8d, 12
+   shl r9d, 6
 
-   or r8, r9
-   or r8, r10
+   or r8d, r9d
+   or r8d, r10d
    jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
 
 
@@ -214,26 +211,25 @@ decode_utf8_four_bytes:
    and r10b, 0x3f 
    and r11b, 0x3f 
    
-   shl r8, 18
-   shl r9, 12
-   shl r10, 6
+   shl r8d, 18
+   shl r9d, 12
+   shl r10d, 6
 
-   or r8, r9
-   or r8, r10
-   or r8, r11
-   jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
+   or r8d, r9d
+   or r8d, r10d
+   or r8d, r11d
 
 
 parse_buffer_apply_polynomial_and_unicode_to_utf8:
    call apply_polynomial
-   mov r8, rax
-   cmp r8, 0x80
+   mov r8d, eax
+   cmp r8d, 0x80
    jb encode_utf8_one_byte
-   cmp r8, 0x0800
+   cmp r8d, 0x0800
    jb encode_utf8_two_bytes
-   cmp r8, 0x010000
+   cmp r8d, 0x010000
    jb encode_utf8_three_bytes
-   cmp r8, 0x0110000
+   cmp r8d, 0x0110000
    jb encode_utf8_four_bytes
 
 
@@ -244,8 +240,8 @@ encode_utf8_one_byte:
 
 
 encode_utf8_two_bytes:
-   mov r9, r8
-   shr r8, 6
+   mov r9d, r8d
+   shr r8d, 6
    and r8b, 0x1f
 
    or r8b, 0xc0
@@ -260,11 +256,11 @@ encode_utf8_two_bytes:
    jmp parse_buffer_loop
    
 encode_utf8_three_bytes:
-   mov r9, r8
-   mov r10, r8
+   mov r9d, r8d
+   mov r10d, r8d
 
-   shr r8, 12
-   shr r9, 6
+   shr r8d, 12
+   shr r9d, 6
 
    and r8b, 0x0f
    and r9b, 0x3f
@@ -283,13 +279,13 @@ encode_utf8_three_bytes:
    jmp parse_buffer_loop
 
 encode_utf8_four_bytes:
-   mov r9, r8
-   mov r10, r8
-   mov r11, r8
+   mov r9d, r8d
+   mov r10d, r8d
+   mov r11d, r8d
 
-   shr r8, 18
-   shr r9, 12
-   shr r10, 6
+   shr r8d, 18
+   shr r9d, 12
+   shr r10d, 6
 
    and r8b, 0x07
    and r9b, 0x3f
@@ -311,10 +307,10 @@ encode_utf8_four_bytes:
    inc r15
    jmp parse_buffer_loop
 
-; get unicode value from r8 and put result in rax
+; get unicode value from r8d and put result in eax
 ; CANT DESTROY: rcx, r14, r12, rbx
 apply_polynomial:
-   sub r8, 0x80
+   sub r8d, 0x80
    mov r11, MODULO_VALUE 
 
    mov r9, [NUM_COEFFS] ; Now in r9 there will be number of coefficents left.
@@ -322,9 +318,7 @@ apply_polynomial:
    cmp r9, 0
    je apply_polynomial_exit
 
-   ; mov rbx, r8    ; Now in rbx there will be unicode value of character to the 1 power.
-   ; xor r8, r8 ; Make r8 zero so we can accumulate result there.
-   xor rax, rax
+   xor eax, eax
 
    mov rcx, r13     ; Now in rcx there will be current address of coefficent.
 
@@ -333,14 +327,13 @@ apply_polynomial_loop:
    cmp r9, 1          ; When only a_0 is left, end loop
    je apply_polynomial_exit
 
-   add rax, [rcx]
-   xor rdx, rdx
-   mul r8    
+   add eax, [rcx]
+   xor edx, edx
+   mul r8d    
 
    ;Modulo
-   xor rdx, rdx             
-   div r11                  
-   mov rax, rdx               ; Copy reminder to the result.
+   div r11d                  
+   mov eax, edx               ; Copy reminder to the result.
 
    dec r9
    sub rcx, 8
@@ -348,25 +341,26 @@ apply_polynomial_loop:
    jmp apply_polynomial_loop
 
 apply_polynomial_exit:
-   add rax, [rcx]  
+   add eax, [rcx]  
 
    ;Modulo
-   xor rdx, rdx             
-   div r11                  
-   mov rax, rdx               ; Copy reminder to the result.
+   xor edx, edx             
+   div r11d                  
+   mov eax, edx               ; Copy reminder to the result.
 
-   add rax, 0x80
+   add eax, 0x80
 
    ret
 
-; Takes address of string in r10 and returns integer in rax.
+; Takes address of string in r10 and returns integer in eax.
 atoi:
-   xor rax, rax
-   mov rcx, 10
-   mov r11, MODULO_VALUE 
+   xor eax, eax
+   xor ecx, ecx
+   mov cl, 10
+   mov r11d, MODULO_VALUE 
 
 atoi_next:
-   xor r8, r8
+   xor r8d, r8d
 
    mov r8b, [r10]
    inc r10
@@ -377,14 +371,14 @@ atoi_next:
    ja atoi_end
 
    sub r8b, '0'
-   xor rdx, rdx
-   mul rcx
-   add rax, r8
+   xor edx, edx
+   mul ecx
+   add eax, r8d
 
    ;Modulo
-   xor rdx, rdx
-   div r11                   ; Divide the result
-   mov rax, rdx               ; Copy reminder to the result.
+   xor edx, edx
+   div r11d                   ; Divide the result
+   mov eax, edx               ; Copy reminder to the result.
 
    jmp atoi_next
 
