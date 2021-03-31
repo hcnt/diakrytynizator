@@ -336,7 +336,11 @@ apply_polynomial_loop:
    add rax, [rcx]
    xor rdx, rdx
    mul r8    
-   call modulo
+
+   ;Modulo
+   xor rdx, rdx             
+   div r11                  
+   mov rax, rdx               ; Copy reminder to the result.
 
    dec r9
    sub rcx, 8
@@ -346,7 +350,11 @@ apply_polynomial_loop:
 apply_polynomial_exit:
    add rax, [rcx]  
 
-   call modulo
+   ;Modulo
+   xor rdx, rdx             
+   div r11                  
+   mov rax, rdx               ; Copy reminder to the result.
+
    add rax, 0x80
 
    ret
@@ -381,16 +389,19 @@ atoi_next:
    jmp atoi_next
 
 atoi_end:
+   mov rdi, 1
+   cmp r8b, 0
+   jne exit
    ret
    
 
 print_message:
-   mov       rax, SYS_WRITE          ; system call for write
-   mov       rdi, STDOUT             ; file handle 1 is stdout
-   mov       rsi, WRITE_BUFFER            ; address of string to output
+   mov       rax, SYS_WRITE         
+   mov       rdi, STDOUT            
+   mov       rsi, WRITE_BUFFER           
 
    sub       r15, WRITE_BUFFER
-   mov       rdx, r15               ; number of bytes
+   mov       rdx, r15               ; Number of bytes
 
    syscall                          
    ret
@@ -405,13 +416,6 @@ read_buffer:
    mov rbx, READ_BUFFER
    ret
 
-modulo:
-   push rdx                  ; Save current address of coefficent (it would be destroyed by div)
-   xor rdx, rdx             
-   div r11                  
-   mov rax, rdx               ; Copy reminder to the result.
-   pop rdx
-   ret
 
 ; Exit code has to be in rdi
 exit:
