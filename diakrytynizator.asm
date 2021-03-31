@@ -62,12 +62,12 @@ parse_buffer_continue_%1:
 
 ; I am not using constants for bitmasks,
 ; because their purpose is determined by value, so they don't need a name.
-         %macro check_if_continuation_byte_is_correct 1
+%macro check_if_continuation_byte_is_correct 1
          mov dl, %1b
          and dl, 11000000b
          cmp dl, 10000000b
          jne parse_buffer_error
-         %endmacro
+%endmacro
 
 ; rax - Used to perform logical operations. (scratch)
 ; rbx - Address pointing to next byte to read from READ_BUFFER.
