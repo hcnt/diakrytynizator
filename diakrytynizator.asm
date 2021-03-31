@@ -56,7 +56,7 @@ parse_buffer_loop:
    cmp r15, r12     ; Check if WRITE_BUFFER has to be flushed.
    jle parse_buffer_utf8_to_unicode
    call print_write_buffer
-   mov r15, WRITE_BUFFER
+   mov r15, WRITE_BUFFER   ; Reset r15 to the beggining of WRITE_BUFFER
 
 parse_buffer_utf8_to_unicode:
    cmp r14, 0                   ; Check if READ_BUFFER must be refilled or there is eof.
@@ -175,9 +175,10 @@ parse_buffer_error:
 
 parse_buffer_check_end:
    call read_buffer
-   mov r14, rax
-   cmp r14, 0
+   cmp rax, 0             ; Check is syscall returned 0
    je parse_buffer_exit
+   mov rbx, READ_BUFFER   ; Reset rbx to the beginning of read buffer
+   mov r14, rax           ; Move number of bytes read to preserved register.
    ret
 
 parse_buffer_exit:
@@ -311,19 +312,16 @@ encode_utf8_four_bytes:
    inc r15
    jmp parse_buffer_loop
 
-; get unicode value from r8d and put result in eax
-; CANT DESTROY: r14, r12, rbx
+; Get unicode value from r8d and put result of polynomial evaluation in eax.
 apply_polynomial:
    sub r8d, 0x80
    mov r11, MODULO_VALUE 
-
    mov r9, [NUM_COEFFS] ; Now in r9 there will be number of coefficents left.
 
-   cmp r9, 0
+   cmp r9, 0            ; If there are none - exit.
    je apply_polynomial_exit
 
    xor eax, eax
-
    mov rcx, r13     ; Now in rcx there will be current address of coefficent.
 
 
@@ -331,13 +329,14 @@ apply_polynomial_loop:
    cmp r9, 1          ; When only a_0 is left, end loop
    je apply_polynomial_exit
 
+   ; Compute value * (eax + a_k)
    add eax, [rcx]
    xor edx, edx
    mul r8d    
 
-   ;Modulo
+   ;Compute modulo
    div r11d                  
-   mov eax, edx               ; Copy reminder to the result.
+   mov eax, edx              
 
    dec r9
    sub rcx, 8
@@ -347,17 +346,22 @@ apply_polynomial_loop:
 apply_polynomial_exit:
    add eax, [rcx]  
 
-   ;Modulo
+   ;Cmopute modulo.
    xor edx, edx             
    div r11d                  
-   mov eax, edx               ; Copy reminder to the result.
+   mov eax, edx              
 
    add eax, 0x80
 
    ret
 
 ; Takes address of string in r10 and returns integer in eax.
-; Modified registers: r8, r9, r10, r11, rax, rdx
+; Modified registers: 
+; r8 - Used as buffer for digit.
+; r9 - Used to store number 10 
+; r10 - Address of string is being iterated.
+; r11 - Used to store MODULO_VALUE
+; rdx - Is being modified by mul and div instructions.
 atoi:
    xor eax, eax
    xor r9d, r9d
@@ -367,39 +371,43 @@ atoi:
 atoi_next:
    xor r8d, r8d
 
+; Copy digit from memory to register.
    mov r8b, [r10]
    inc r10
 
-   cmp r8b, '0'                        ; Check if bl contains digit
+ ; Check if r8b contains digit.
+   cmp r8b, '0'                       
    jb atoi_end
    cmp r8b, '9'
    ja atoi_end
 
-   sub r8b, '0'
+   sub r8b, '0' ; Change r8b value from ascii character to digit value.
    xor edx, edx
-   mul r9d
+
+ ; Compute rax * 10 + digit
+   mul r9d      
    add eax, r8d
 
-   ;Modulo
-   xor edx, edx
+   ; Compute modulo.
    div r11d                   ; Divide the result
    mov eax, edx               ; Copy reminder to the result.
 
    jmp atoi_next
 
 atoi_end:
-   cmp r8b, 0
+   cmp r8b, 0                  ; Check if not digit character was \0, if not then it's not a correct number.
    jne exit_1
    ret
    
 
+; Print r15 bytes from WRITE_BUFFER, using system call write().
 print_write_buffer:
    mov       rax, SYS_WRITE         
    mov       rdi, STDOUT            
    mov       rsi, WRITE_BUFFER           
 
-   sub       r15, WRITE_BUFFER
-   mov       rdx, r15               ; Number of bytes
+   sub       r15, WRITE_BUFFER      ; r15 was address, so we have to subtract beginning of array to get number of bytes.
+   mov       rdx, r15             
 
    syscall                          
    ret
@@ -407,7 +415,6 @@ print_write_buffer:
 ; Invoke system call read().
 ; Result will be in variable READ_BUFFER.
 ; r14 - number of bytes read.
-; rbx - pointer
 read_buffer:
    mov rax, SYS_READ
    mov rdi, STDIN
@@ -415,7 +422,6 @@ read_buffer:
    mov rdx, BUFFER_SIZE
    syscall
    mov r14, rax     ; Move number of bytes read to preserved register
-   mov rbx, READ_BUFFER
    ret
 
 ; Exit with status code 0.
