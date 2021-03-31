@@ -6,6 +6,14 @@ STDIN      equ 0
 SYS_BRK  equ 12
 BUFFER_SIZE  equ 4096
 MODULO_VALUE equ 0x10ff80
+CONTINUATION_BYTE_LOWER_BOUND equ 0x80
+CONTINUATION_BYTE_HIGHER_BOUND equ 0xbf
+FIRST_NON_ACII_CHAR equ 0x80
+HIGHEST_VALUE_FOR_FIRST_BYTE_UTF8 equ 0xf4
+
+FIRST_UNICODE_VALUE_FOR_TWO_BYTE_ENCODING equ 0x80
+FIRST_UNICODE_VALUE_FOR_THREE_BYTE_ENCODING equ 0x0800
+FIRST_UNICODE_VALUE_FOR_FOUR_BYTE_ENCODING equ 0x010000
 
 ; There should be 4 bytes of room in buffer, if utf-8 bytes don't allign to the end of the buffer.
 BUFFER_SIZE_WITH_ROOM  equ 4092
@@ -18,7 +26,7 @@ _start:
    pop rax                          ; Get number of arguments + 1.
    dec rax                          ; Make it real number of arguments.
 
-   cmp rax, 0                       ; Number of coeffs has to be more than 0.
+   test rax, rax                       ; Number of coeffs has to be more than 0.
    je exit_1
 
    mov r12, rax            ; Copy number of args to preserved register.
@@ -37,10 +45,11 @@ put_coeffs_on_stack:
    add r13, 8
    loop put_coeffs_on_stack
 
-; if r14 is 0 then there are no bytes to read from buffer, 
+; If r14 is 0 then there are no bytes to read from buffer, 
 ; and we have to check if there is more to read.
+; Argument is needed to ensure that every label is different.
 %macro check_if_buffer_ended 1
-   cmp r14, 0           
+   test r14, r14           
    jne parse_buffer_continue_%1
    call parse_buffer_check_end
 parse_buffer_continue_%1:
@@ -51,6 +60,15 @@ parse_buffer_continue_%1:
    mov %1b, [rbx]
    inc rbx     
    dec r14
+%endmacro
+
+; I am not using constants for bitmasks, 
+; because their purpose is determined by value, so they don't need a name.
+%macro check_if_continuation_byte_is_correct 1
+   mov dl, %1b
+   and dl, 11000000b
+   cmp dl, 10000000b
+   jne parse_buffer_error
 %endmacro
 
 ; rax - Used to perform logical operations. (scratch)
@@ -85,18 +103,18 @@ parse_buffer_utf8_to_unicode:
    check_if_buffer_ended 0
    read_byte_from_buffer r8
 
-   cmp r8b, 0x80        ; Check if value is smaller then 0x80, then we know it's ascii character
+   cmp r8b, FIRST_NON_ACII_CHAR        ; Check if value is smaller then 0x80, then we know it's ascii character
    jb encode_utf8_one_byte
 
-   cmp r8b, 0xf4        ; If it's bigger than 0xf4 then it's error
+   cmp r8b, HIGHEST_VALUE_FOR_FIRST_BYTE_UTF8        
    ja parse_buffer_error
 
    check_if_buffer_ended 1
    read_byte_from_buffer r9
 
    ; Compute lower and higher bounds for second byte 
-   mov ax, 0x80
-   mov dx, 0xbf
+   mov ax, CONTINUATION_BYTE_LOWER_BOUND
+   mov dx, CONTINUATION_BYTE_HIGHER_BOUND
 
    mov si, 0xa0
    mov r10w, 0x90
@@ -119,38 +137,28 @@ parse_buffer_utf8_to_unicode:
 
    ; Check if it's 2 byte character
    mov dl, r8b
-   and dl, 0xe0   ; and with 11100000
-   cmp dl, 0xc0   ; check if equals 11000000
+   and dl, 11100000b  
+   cmp dl, 11000000b  
    je decode_utf8_two_bytes
 
    check_if_buffer_ended 2
    read_byte_from_buffer r10
-
-   ; Check if it's correct
-   mov dl, r10b
-   and dl, 0xc0
-   cmp dl, 0x80
-   jne parse_buffer_error
+   check_if_continuation_byte_is_correct r10
 
    ; Check if it's 3 byte character
    mov dl, r8b
-   and dl, 0xf0
-   cmp dl, 0xe0
+   and dl, 11110000b
+   cmp dl, 11100000b
    je decode_utf8_three_bytes
 
    check_if_buffer_ended 3
    read_byte_from_buffer r11
-
-   ; Check if it's correct
-   mov dl, r11b
-   and dl, 0xc0
-   cmp dl, 0x80
-   jne parse_buffer_error
+   check_if_continuation_byte_is_correct r11
 
    ; Check if it's 4 byte character
    mov dl, r8b
-   and dl, 0xf8
-   cmp dl, 0xf0
+   and dl, 11111000b
+   cmp dl, 11110000b
    je decode_utf8_four_bytes
 
    ; If none of this cases is true then error
@@ -161,7 +169,7 @@ parse_buffer_error:
 
 parse_buffer_check_end:
    call read_buffer
-   cmp rax, 0             ; Check is syscall returned 0
+   test rax, rax             ; Check is syscall returned 0
    je parse_buffer_exit
    mov rbx, READ_BUFFER   ; Reset rbx to the beginning of read buffer
    mov r14, rax           ; Move number of bytes read to preserved register.
@@ -171,12 +179,15 @@ parse_buffer_exit:
    call print_write_buffer
    jmp exit_0
 
-;----------------------------------------
+;---------------------------------------
 
 decode_utf8_two_bytes:
-   and r8b, 0x1f
-   and r9b, 0x3f
-   cmp r8b, 2
+   and r8b, 00011111b
+   and r9b, 00111111b
+
+ ; If value of the first byte is 0 or 1 
+ ; then this unicode char can be coded on one byte, so it's incorrect.
+   cmp r8b, 2          
    jb parse_buffer_error
 
    shl r8d, 6
@@ -184,9 +195,9 @@ decode_utf8_two_bytes:
    jmp parse_buffer_apply_polynomial_and_unicode_to_utf8
 
 decode_utf8_three_bytes:
-   and r8b, 0x0f 
-   and r9b, 0x3f 
-   and r10b, 0x3f 
+   and r8b, 00001111b 
+   and r9b, 00111111b 
+   and r10b, 00111111b 
    
    shl r8d, 12
    shl r9d, 6
@@ -197,10 +208,10 @@ decode_utf8_three_bytes:
 
 
 decode_utf8_four_bytes:
-   and r8b, 0x07
-   and r9b, 0x3f 
-   and r10b, 0x3f 
-   and r11b, 0x3f 
+   and r8b, 00000111b
+   and r9b, 00111111b 
+   and r10b, 00111111b
+   and r11b, 00111111b
    
    shl r8d, 18
    shl r9d, 12
@@ -214,14 +225,13 @@ decode_utf8_four_bytes:
 parse_buffer_apply_polynomial_and_unicode_to_utf8:
    call apply_polynomial
    mov r8d, eax
-   cmp r8d, 0x80
+   cmp r8d, FIRST_UNICODE_VALUE_FOR_TWO_BYTE_ENCODING
    jb encode_utf8_one_byte
-   cmp r8d, 0x0800
+   cmp r8d, FIRST_UNICODE_VALUE_FOR_THREE_BYTE_ENCODING
    jb encode_utf8_two_bytes
-   cmp r8d, 0x010000
+   cmp r8d, FIRST_UNICODE_VALUE_FOR_FOUR_BYTE_ENCODING
    jb encode_utf8_three_bytes
-   cmp r8d, 0x0110000
-   jb encode_utf8_four_bytes
+   jmp encode_utf8_four_bytes
 
 
 encode_utf8_one_byte:
@@ -233,18 +243,22 @@ encode_utf8_one_byte:
 encode_utf8_two_bytes:
    mov r9d, r8d
    shr r8d, 6
-   and r8b, 0x1f
 
-   or r8b, 0xc0
-   and r9b, 0x3f
-   or r9b, 0x80
+   ; Get only bits that code unicode values.
+   and r8b, 00011111b
+   and r9b, 00111111b
 
+   ; Add utf8 "headers" to bytes.
+   or r8b, 11000000b
+   or r9b, 10000000b
 
+   ; Put bytes to WRITE_BUFFER
    mov [r15], r8b
    mov [r15 + 1], r9b
    add r15, 2
    jmp parse_buffer_loop
    
+; Rest of encoding functions is analogous to first one.
 encode_utf8_three_bytes:
    mov r9d, r8d
    mov r10d, r8d
@@ -252,13 +266,13 @@ encode_utf8_three_bytes:
    shr r8d, 12
    shr r9d, 6
 
-   and r8b, 0x0f
-   and r9b, 0x3f
-   and r10b, 0x3f
+   and r8b, 00001111b
+   and r9b, 00111111b
+   and r10b, 00111111b
 
-   or r8b, 0xe0
-   or r9b, 0x80
-   or r10b, 0x80
+   or r8b, 11100000b
+   or r9b, 10000000b
+   or r10b, 10000000b
 
    mov [r15], r8b
    mov [r15 + 1], r9b
@@ -275,15 +289,15 @@ encode_utf8_four_bytes:
    shr r9d, 12
    shr r10d, 6
 
-   and r8b, 0x07
-   and r9b, 0x3f
-   and r10b, 0x3f
-   and r11b, 0x3f
+   and r8b, 00000111b
+   and r9b, 00111111b
+   and r10b, 00111111b
+   and r11b, 00111111b
 
-   or r8b, 0xf0
-   or r9b, 0x80
-   or r10b, 0x80
-   or r11b, 0x80
+   or r8b, 11110000b
+   or r9b, 10000000b
+   or r10b, 10000000b
+   or r11b, 10000000b
 
    mov [r15], r8b
    mov [r15 + 1], r9b
@@ -299,7 +313,7 @@ apply_polynomial:
    mov r11, MODULO_VALUE 
    mov r9, rbp ; Now in r9 there will be number of coefficents left.
 
-   cmp r9, 0            ; If there are none - exit.
+   test r9, r9            ; If there are none - exit.
    je apply_polynomial_exit
 
    xor eax, eax
@@ -312,7 +326,7 @@ apply_polynomial_loop:
 
    ; Compute value * (eax + a_k)
    add eax, [rcx]
-   xor edx, edx
+   xor rdx, rdx
    mul r8    
 
    ;Compute modulo
@@ -325,13 +339,8 @@ apply_polynomial_loop:
 
 apply_polynomial_exit:
    add eax, [rcx]  
-
-   ;Compute modulo.
-   xor rdx, rdx             
    call modulo
-
    add eax, 0x80
-
    ret
 
 ; Takes address of string in r10 and returns integer in eax.
@@ -372,12 +381,13 @@ atoi_next:
    jmp atoi_next
 
 atoi_end:
-   cmp r8b, 0                  ; Check if not digit character was \0, if not then it's not a correct number.
+   test r8b, r8b               ; Check if not digit character was \0, if not then it's not a correct number.
    jne exit_1
    ret
 
 ; Takes value in rax and computes value % MODULO_VALUE in eax
 ; Uses rax, rdi, rdx
+; Code taken from compiling modulo function in gcc with -O3 flag
 modulo:
    mov    rdi, rax
    mov    rdx, 0x787c03a5c11c4499
@@ -421,7 +431,8 @@ exit_0:
 
 ; Exit with status code 1.
 exit_1:
-   mov rdi, 1
+   xor rdi, rdi
+   inc dil
    mov       rax, SYS_EXIT          
    syscall                          
 
