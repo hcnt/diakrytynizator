@@ -15,7 +15,7 @@ section   .text
 _start:   
    pop rax                          ; Get number of arguments + 1.
    dec rax                          ; Make it real number of arguments.
-   mov r12, rax                     ; Copy number of args to preserved register.
+   mov r12, rax            ; Copy number of args to preserved register.
    
    pop rsi                          ; Discard program name.
    
@@ -38,14 +38,17 @@ put_coeff_in_memory:
 ; r10b - third utf8 byte
 ; r11b - fourth utf8 byte
 parse_input:
+   mov [NUM_COEFFS], r12 
    sub r13, 8  ; Make r13 point to last coeff in memory
    xor r14, r14 ; Use r14 as counter in READ_BUFFER
-   xor r15, r15 ; Use r15 as counter in WRITE_BUFFER
+   mov r15, WRITE_BUFFER ; Use r15 as counter in WRITE_BUFFER
+   mov r12, WRITE_BUFFER ; Use r12 as last address in write buffer
+   add r12, BUFFER_SIZE_WITH_ROOM
 parse_buffer_loop:
-   cmp r15, BUFFER_SIZE_WITH_ROOM
+   cmp r15, r12     ; Check if WRITE_BUFFER has to be flushed.
    jle parse_buffer_utf8_to_unicode
    call print_message
-   xor r15, r15
+   mov r15, WRITE_BUFFER
 
 parse_buffer_utf8_to_unicode:
    cmp r14, 0
@@ -235,7 +238,7 @@ parse_buffer_apply_polynomial_and_unicode_to_utf8:
 
 
 encode_utf8_one_byte:
-   mov [WRITE_BUFFER + r15], r8b
+   mov [r15], r8b
    inc r15
    jmp parse_buffer_loop
 
@@ -250,9 +253,10 @@ encode_utf8_two_bytes:
    or r9b, 0x80
 
 
-   mov [WRITE_BUFFER + r15], r8b
-   mov [WRITE_BUFFER + r15 + 1], r9b
-   add r15, 2
+   mov [r15], r8b
+   inc r15
+   mov [r15], r9b
+   inc r15
    jmp parse_buffer_loop
    
 encode_utf8_three_bytes:
@@ -270,10 +274,12 @@ encode_utf8_three_bytes:
    or r9b, 0x80
    or r10b, 0x80
 
-   mov [WRITE_BUFFER + r15], r8b
-   mov [WRITE_BUFFER + r15 + 1], r9b
-   mov [WRITE_BUFFER + r15 + 2], r10b
-   add r15, 3
+   mov [r15], r8b
+   inc r15
+   mov [r15], r9b
+   inc r15
+   mov [r15], r10b
+   inc r15
    jmp parse_buffer_loop
 
 encode_utf8_four_bytes:
@@ -295,11 +301,14 @@ encode_utf8_four_bytes:
    or r10b, 0x80
    or r11b, 0x80
 
-   mov [WRITE_BUFFER + r15], r8b
-   mov [WRITE_BUFFER + r15 + 1], r9b
-   mov [WRITE_BUFFER + r15 + 2], r10b
-   mov [WRITE_BUFFER + r15 + 3], r11b
-   add r15, 4
+   mov [r15], r8b
+   inc r15
+   mov [r15], r9b
+   inc r15
+   mov [r15], r10b
+   inc r15
+   mov [r15], r11b
+   inc r15
    jmp parse_buffer_loop
 
 ; get unicode value from r8 and put result in rax
@@ -308,7 +317,9 @@ apply_polynomial:
    sub r8, 0x80
    mov r11, MODULO_VALUE 
 
-   cmp r12, 0
+   mov r9, [NUM_COEFFS] ; Now in r9 there will be number of coefficents left.
+
+   cmp r9, 0
    je apply_polynomial_exit
 
    ; mov rbx, r8    ; Now in rbx there will be unicode value of character to the 1 power.
@@ -317,7 +328,6 @@ apply_polynomial:
 
    mov rcx, r13     ; Now in rcx there will be current address of coefficent.
 
-   mov r9, r12 ; Now in r9 there will be number of coefficents left.
 
 apply_polynomial_loop:
    cmp r9, 1          ; When only a_0 is left, end loop
@@ -378,7 +388,10 @@ print_message:
    mov       rax, SYS_WRITE          ; system call for write
    mov       rdi, STDOUT             ; file handle 1 is stdout
    mov       rsi, WRITE_BUFFER            ; address of string to output
+
+   sub       r15, WRITE_BUFFER
    mov       rdx, r15               ; number of bytes
+
    syscall                          
    ret
 
@@ -409,3 +422,4 @@ exit:
 section   .bss
    READ_BUFFER resb BUFFER_SIZE
    WRITE_BUFFER resb BUFFER_SIZE
+   NUM_COEFFS resq 1
