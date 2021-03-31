@@ -37,6 +37,8 @@ put_coeffs_on_stack:
    add r13, 8
    loop put_coeffs_on_stack
 
+; if r14 is 0 then there are no bytes to read from buffer, 
+; and we have to check if there is more to read.
 %macro check_if_buffer_ended 1
    cmp r14, 0           
    jne parse_buffer_continue_%1
@@ -51,22 +53,27 @@ parse_buffer_continue_%1:
    dec r14
 %endmacro
 
-
-; r8b - first utf8 byte
-; r9b - second utf8 byte
-; r10b - third utf8 byte
-; r11b - fourth utf8 byte
-; r12 - first unsafe adrdress in WRITE_BUFFER 
+; rax - Used to perform logical operations. (scratch)
+; rbx - Address pointing to next byte to read from READ_BUFFER.
+; rcx - Used to perform logical operations. (scratch)
+; rdx - Used to perform logical operations. (scratch)
+; rsi - Used to perform logical operations. (scratch)
+; rbp - Stores number of polynomial coefficents.
+; r8b - First utf8 byte.
+; r9b - Second utf8 byte.
+; r10b - Third utf8 byte.
+; r11b - Fourth utf8 byte.
+; r12 - First unsafe adrdress in WRITE_BUFFER.
 ; (if pointer is at this position at the start of loop, we have to flush the buffer.)
-; r13 - address pointing to the last coeff in memory
-; r14 - number of bytes to read in read_buffer
+; r13 - Address pointing to the last coeff in memory.
+; r14 - Number of bytes to read in read_buffer.
 ; r15 - WRITE_BUFFER pointer to next empty cell.
 parse_input:
-   mov [NUM_COEFFS], r12 
+   mov rbp, r12  
    sub r13, 8  ; Make r13 point to last coefficent in memory.
-   xor r14, r14 ; Use r14 as counter in READ_BUFFER
-   mov r15, WRITE_BUFFER ; Use r15 as counter in WRITE_BUFFER
-   mov r12, WRITE_BUFFER ; Use r12 as last address in write buffer
+   xor r14, r14  ; At the start there is nothing in READ_BUFFER.
+   mov r15, WRITE_BUFFER
+   mov r12, WRITE_BUFFER
    add r12, BUFFER_SIZE_WITH_ROOM
 parse_buffer_loop:
    cmp r15, r12     ; Check if WRITE_BUFFER has to be flushed.
@@ -92,15 +99,14 @@ parse_buffer_utf8_to_unicode:
    mov dx, 0xbf
 
    mov si, 0xa0
-   mov r10w, 0x9f
-   mov r11w, 0x90
+   mov r10w, 0x90
    mov cl, 0x8f
 
    cmp r8b, 0xe0
    cmove ax, si
 
    cmp r8b, 0xf0
-   cmove ax, r11w
+   cmove ax, r10w
 
    cmp r8b, 0xf4
    cmove dx, cx
@@ -291,7 +297,7 @@ encode_utf8_four_bytes:
 apply_polynomial:
    sub r8d, 0x80
    mov r11, MODULO_VALUE 
-   mov r9, [NUM_COEFFS] ; Now in r9 there will be number of coefficents left.
+   mov r9, rbp ; Now in r9 there will be number of coefficents left.
 
    cmp r9, 0            ; If there are none - exit.
    je apply_polynomial_exit
@@ -414,5 +420,3 @@ exit_1:
 section   .bss
    READ_BUFFER resb BUFFER_SIZE
    WRITE_BUFFER resb BUFFER_SIZE
-   NUM_COEFFS resq 1
-   LAST_COEFF resq 1
