@@ -313,11 +313,10 @@ apply_polynomial_loop:
    ; Compute value * (eax + a_k)
    add eax, [rcx]
    xor edx, edx
-   mul r8d    
+   mul r8    
 
    ;Compute modulo
-   div r11d                  
-   mov eax, edx              
+   call modulo
 
    dec r9
    sub rcx, 8
@@ -328,9 +327,8 @@ apply_polynomial_exit:
    add eax, [rcx]  
 
    ;Compute modulo.
-   xor edx, edx             
-   div r11d                  
-   mov eax, edx              
+   xor rdx, rdx             
+   call modulo
 
    add eax, 0x80
 
@@ -366,12 +364,10 @@ atoi_next:
    xor edx, edx
 
  ; Compute rax * 10 + digit
-   mul r9d      
+   mul r9      
    add eax, r8d
 
-   ; Compute modulo.
-   div r11d                   ; Divide the result
-   mov eax, edx               ; Copy reminder to the result.
+   call modulo
 
    jmp atoi_next
 
@@ -379,7 +375,19 @@ atoi_end:
    cmp r8b, 0                  ; Check if not digit character was \0, if not then it's not a correct number.
    jne exit_1
    ret
-   
+
+; Takes value in rax and computes value % MODULO_VALUE in eax
+; Uses rax, rdi, rdx
+modulo:
+   mov    rdi, rax
+   mov    rdx, 0x787c03a5c11c4499
+   mul    rdx
+   shr    rdx,0x13
+   imul   rdx,rdx,0x10ff80
+   sub    rdi,rdx
+   mov    eax, edi
+   ret
+
 
 ; Print r15 bytes from WRITE_BUFFER, using system call write().
 print_write_buffer:
