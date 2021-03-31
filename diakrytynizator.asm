@@ -255,9 +255,8 @@ encode_utf8_two_bytes:
 
 
    mov [r15], r8b
-   inc r15
-   mov [r15], r9b
-   inc r15
+   mov [r15 + 1], r9b
+   add r15, 2
    jmp parse_buffer_loop
    
 encode_utf8_three_bytes:
@@ -276,11 +275,9 @@ encode_utf8_three_bytes:
    or r10b, 0x80
 
    mov [r15], r8b
-   inc r15
-   mov [r15], r9b
-   inc r15
-   mov [r15], r10b
-   inc r15
+   mov [r15 + 1], r9b
+   mov [r15 + 2], r10b
+   add r15, 3
    jmp parse_buffer_loop
 
 encode_utf8_four_bytes:
@@ -303,16 +300,14 @@ encode_utf8_four_bytes:
    or r11b, 0x80
 
    mov [r15], r8b
-   inc r15
-   mov [r15], r9b
-   inc r15
-   mov [r15], r10b
-   inc r15
-   mov [r15], r11b
-   inc r15
+   mov [r15 + 1], r9b
+   mov [r15 + 2], r10b
+   mov [r15 + 3], r11b
+   add r15, 4
    jmp parse_buffer_loop
 
 ; Get unicode value from r8d and put result of polynomial evaluation in eax.
+; Resulting polynomial is of form w(r8d - 0x80) + 0x80.
 apply_polynomial:
    sub r8d, 0x80
    mov r11, MODULO_VALUE 
