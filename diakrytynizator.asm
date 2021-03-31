@@ -12,34 +12,42 @@ BUFFER_SIZE_WITH_ROOM  equ 4092
 
 section   .text
    global    _start
+; USED REGISTERS:
+; rax, r12, rsi, rcx, r13  
 _start:   
    pop rax                          ; Get number of arguments + 1.
    dec rax                          ; Make it real number of arguments.
+
+   cmp rax, 0                       ; Number of coeffs has to be more than 0.
+   je exit_1
+
    mov r12, rax            ; Copy number of args to preserved register.
+   mov rcx, rax                      ; Use rcx as loop counter for putting coeffs on stack.
  
    pop rsi                          ; Discard program name.
    
-   xor rbx, rbx                      ; Use rbx as loop counter.
    mov r13, rsp       ; Copy value of stack pointer
 
-put_coeff_in_memory:   
-   cmp rbx, r12
-   jz parse_input
-   ; pop r10
-   mov r10, [r13]
+; Replace pointers to strings on stack to their actual value.
+; In r13 there will be address pointing after the last coefficent.
+put_coeffs_on_stack:   
+   mov r10, [r13]               
    call atoi
    mov [r13], eax
    add r13, 8
-   inc rbx
-   jmp put_coeff_in_memory
+   loop put_coeffs_on_stack
 
 ; r8b - first utf8 byte
 ; r9b - second utf8 byte
 ; r10b - third utf8 byte
 ; r11b - fourth utf8 byte
+; r12 - first unsafe adrdress in WRITE_BUFFER 
+; (if pointer is at this position at the start of loop, we have to flush the buffer.)
+; r14 - number of bytes to read in read_buffer
+; r15 - WRITE_BUFFER pointer to next empty cell.
 parse_input:
    mov [NUM_COEFFS], r12 
-   sub r13, 8  ; Make r13 point to last coeff in memory
+   sub r13, 8  ; Make r13 point to last coefficent in memory.
    xor r14, r14 ; Use r14 as counter in READ_BUFFER
    mov r15, WRITE_BUFFER ; Use r15 as counter in WRITE_BUFFER
    mov r12, WRITE_BUFFER ; Use r12 as last address in write buffer
@@ -47,17 +55,17 @@ parse_input:
 parse_buffer_loop:
    cmp r15, r12     ; Check if WRITE_BUFFER has to be flushed.
    jle parse_buffer_utf8_to_unicode
-   call print_message
+   call print_write_buffer
    mov r15, WRITE_BUFFER
 
 parse_buffer_utf8_to_unicode:
-   cmp r14, 0
+   cmp r14, 0                   ; Check if READ_BUFFER must be refilled or there is eof.
    jne parse_buffer_continue_0
-   call parse_buffer_check_end
+   call parse_buffer_check_end  ; Refill or exit if empty.
 parse_buffer_continue_0:
 
    ;Read first byte from buffer.
-   xor r8d, r8d          ; Clear buffer after last loop.
+   xor r8d, r8d         ; Clear buffer after last loop.
    mov r8b, [rbx]       ; Get value from READ_BUFFER.
    inc rbx              ; Move pointer to the next byte.
    dec r14
@@ -161,24 +169,20 @@ parse_buffer_continue_3:
 
    ; If none of this cases is true then error
 parse_buffer_error:
-   call print_message
-   mov rdi, 1
-   jmp exit
+   call print_write_buffer
+   jmp exit_1
 
 
 parse_buffer_check_end:
-   push rcx
    call read_buffer
-   pop rcx
    mov r14, rax
    cmp r14, 0
    je parse_buffer_exit
    ret
 
 parse_buffer_exit:
-   call print_message
-   xor rdi, rdi
-   jmp exit
+   call print_write_buffer
+   jmp exit_0
 
 ;----------------------------------------
 
@@ -308,7 +312,7 @@ encode_utf8_four_bytes:
    jmp parse_buffer_loop
 
 ; get unicode value from r8d and put result in eax
-; CANT DESTROY: rcx, r14, r12, rbx
+; CANT DESTROY: r14, r12, rbx
 apply_polynomial:
    sub r8d, 0x80
    mov r11, MODULO_VALUE 
@@ -353,10 +357,11 @@ apply_polynomial_exit:
    ret
 
 ; Takes address of string in r10 and returns integer in eax.
+; Modified registers: r8, r9, r10, r11, rax, rdx
 atoi:
    xor eax, eax
-   xor ecx, ecx
-   mov cl, 10
+   xor r9d, r9d
+   mov r9b, 10
    mov r11d, MODULO_VALUE 
 
 atoi_next:
@@ -372,7 +377,7 @@ atoi_next:
 
    sub r8b, '0'
    xor edx, edx
-   mul ecx
+   mul r9d
    add eax, r8d
 
    ;Modulo
@@ -383,13 +388,12 @@ atoi_next:
    jmp atoi_next
 
 atoi_end:
-   mov rdi, 1
    cmp r8b, 0
-   jne exit
+   jne exit_1
    ret
    
 
-print_message:
+print_write_buffer:
    mov       rax, SYS_WRITE         
    mov       rdi, STDOUT            
    mov       rsi, WRITE_BUFFER           
@@ -400,6 +404,10 @@ print_message:
    syscall                          
    ret
 
+; Invoke system call read().
+; Result will be in variable READ_BUFFER.
+; r14 - number of bytes read.
+; rbx - pointer
 read_buffer:
    mov rax, SYS_READ
    mov rdi, STDIN
@@ -410,12 +418,17 @@ read_buffer:
    mov rbx, READ_BUFFER
    ret
 
+; Exit with status code 0.
+exit_0:
+   xor rdi, rdi
+   mov       rax, SYS_EXIT          
+   syscall                          
 
-; Exit code has to be in rdi
-exit:
-   mov       rax, SYS_EXIT           ; system call for exit
-   syscall                           ; invoke operating system to exit
-
+; Exit with status code 1.
+exit_1:
+   mov rdi, 1
+   mov       rax, SYS_EXIT          
+   syscall                          
 
 section   .bss
    READ_BUFFER resb BUFFER_SIZE
