@@ -37,12 +37,28 @@ put_coeffs_on_stack:
    add r13, 8
    loop put_coeffs_on_stack
 
+%macro check_if_buffer_ended 1
+   cmp r14, 0           
+   jne parse_buffer_continue_%1
+   call parse_buffer_check_end
+parse_buffer_continue_%1:
+%endmacro
+
+%macro read_byte_from_buffer 1
+   xor %1d, %1d           
+   mov %1b, [rbx]
+   inc rbx     
+   dec r14
+%endmacro
+
+
 ; r8b - first utf8 byte
 ; r9b - second utf8 byte
 ; r10b - third utf8 byte
 ; r11b - fourth utf8 byte
 ; r12 - first unsafe adrdress in WRITE_BUFFER 
 ; (if pointer is at this position at the start of loop, we have to flush the buffer.)
+; r13 - address pointing to the last coeff in memory
 ; r14 - number of bytes to read in read_buffer
 ; r15 - WRITE_BUFFER pointer to next empty cell.
 parse_input:
@@ -59,16 +75,8 @@ parse_buffer_loop:
    mov r15, WRITE_BUFFER   ; Reset r15 to the beggining of WRITE_BUFFER
 
 parse_buffer_utf8_to_unicode:
-   cmp r14, 0                   ; Check if READ_BUFFER must be refilled or there is eof.
-   jne parse_buffer_continue_0
-   call parse_buffer_check_end  ; Refill or exit if empty.
-parse_buffer_continue_0:
-
-   ;Read first byte from buffer.
-   xor r8d, r8d         ; Clear buffer after last loop.
-   mov r8b, [rbx]       ; Get value from READ_BUFFER.
-   inc rbx              ; Move pointer to the next byte.
-   dec r14
+   check_if_buffer_ended 0
+   read_byte_from_buffer r8
 
    cmp r8b, 0x80        ; Check if value is smaller then 0x80, then we know it's ascii character
    jb encode_utf8_one_byte
@@ -76,29 +84,20 @@ parse_buffer_continue_0:
    cmp r8b, 0xf4        ; If it's bigger than 0xf4 then it's error
    ja parse_buffer_error
 
-   cmp r14, 0
-   jne parse_buffer_continue_1
-   call parse_buffer_check_end
-parse_buffer_continue_1:
-   ; Read next byte from buffer.
-   xor r9d, r9d           
-   mov r9b, [rbx]
-   inc rbx     
-   dec r14
+   check_if_buffer_ended 1
+   read_byte_from_buffer r9
 
    ; Compute lower and higher bounds for second byte 
-   push rax
-   push r9
    mov ax, 0x80
    mov dx, 0xbf
 
-   mov r9w, 0xa0
+   mov si, 0xa0
    mov r10w, 0x9f
    mov r11w, 0x90
    mov cl, 0x8f
 
    cmp r8b, 0xe0
-   cmove ax, r9w
+   cmove ax, si
 
    cmp r8b, 0xf0
    cmove ax, r11w
@@ -106,14 +105,11 @@ parse_buffer_continue_1:
    cmp r8b, 0xf4
    cmove dx, cx
 
-   pop r9
    ; Check if second byte is correct
    cmp r9b, al
    jb parse_buffer_error
    cmp r9b, dl
    ja parse_buffer_error
-
-   pop rax
 
    ; Check if it's 2 byte character
    mov dl, r8b
@@ -121,16 +117,8 @@ parse_buffer_continue_1:
    cmp dl, 0xc0   ; check if equals 11000000
    je decode_utf8_two_bytes
 
-   cmp r14, 0
-   jne parse_buffer_continue_2
-   call parse_buffer_check_end
-parse_buffer_continue_2:
-
-   ; Read next byte
-   xor r10d, r10d
-   mov r10b, [rbx]
-   inc rbx     
-   dec r14
+   check_if_buffer_ended 2
+   read_byte_from_buffer r10
 
    ; Check if it's correct
    mov dl, r10b
@@ -144,16 +132,8 @@ parse_buffer_continue_2:
    cmp dl, 0xe0
    je decode_utf8_three_bytes
 
-   cmp r14, 0
-   jne parse_buffer_continue_3
-   call parse_buffer_check_end
-parse_buffer_continue_3:
-
-   ; Read next byte
-   xor r11d, r11d
-   mov r11b, [rbx]
-   inc rbx     
-   dec r14
+   check_if_buffer_ended 3
+   read_byte_from_buffer r11
 
    ; Check if it's correct
    mov dl, r11b
@@ -307,7 +287,7 @@ encode_utf8_four_bytes:
    jmp parse_buffer_loop
 
 ; Get unicode value from r8d and put result of polynomial evaluation in eax.
-; Resulting polynomial is of form w(r8d - 0x80) + 0x80.
+; Resulting polynomial is of form (w(r8d - 0x80) % MODULO_VALUE) + 0x80.
 apply_polynomial:
    sub r8d, 0x80
    mov r11, MODULO_VALUE 
@@ -341,7 +321,7 @@ apply_polynomial_loop:
 apply_polynomial_exit:
    add eax, [rcx]  
 
-   ;Cmopute modulo.
+   ;Compute modulo.
    xor edx, edx             
    div r11d                  
    mov eax, edx              
@@ -435,3 +415,4 @@ section   .bss
    READ_BUFFER resb BUFFER_SIZE
    WRITE_BUFFER resb BUFFER_SIZE
    NUM_COEFFS resq 1
+   LAST_COEFF resq 1
